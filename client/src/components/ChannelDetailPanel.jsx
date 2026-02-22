@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import EQCurve from './EQCurve';
 import CompressorCurve from './CompressorCurve';
+import GateCurve from './GateCurve';
 
 // ─── Slide-in animation ───────────────────────────────────────────────────────
 const SLIDE_CSS = `
@@ -37,6 +38,7 @@ export default function ChannelDetailPanel({
   channel, channelNames, busNames,
   getEqParam, setEqParam,
   getDynParam, setDynParam,
+  getGateParam, setGateParam,
   getMeterLevel,
   getSendLevel, setSendLevel,
   onClose,
@@ -75,6 +77,7 @@ export default function ChannelDetailPanel({
           {[
             { key: 'eq',    label: 'EQ' },
             { key: 'comp',  label: 'COMP' },
+            { key: 'gate',  label: 'GATE' },
             { key: 'sends', label: 'SENDS' },
           ].map(({ key, label }) => (
             <button
@@ -105,6 +108,17 @@ export default function ChannelDetailPanel({
                 ch={channel}
                 getDynParam={getDynParam}
                 setDynParam={setDynParam}
+                getMeterLevel={getMeterLevel}
+              />
+            </div>
+          )}
+
+          {tab === 'gate' && (
+            <div style={s.section}>
+              <GateCurve
+                ch={channel}
+                getGateParam={getGateParam}
+                setGateParam={setGateParam}
                 getMeterLevel={getMeterLevel}
               />
             </div>

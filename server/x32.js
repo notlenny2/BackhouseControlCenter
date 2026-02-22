@@ -225,6 +225,15 @@ class X32Bridge {
       return;
     }
 
+    // Gate parameter reply: /ch/01/gate/thr
+    const gateMatch = address.match(/^\/ch\/(\d+)\/gate\/(on|thr|range|att|hold|rel)$/);
+    if (gateMatch && args[0] !== undefined) {
+      const channel = parseInt(gateMatch[1]);
+      const param = gateMatch[2];
+      this.io.emit('x32:gate', { channel, param, value: args[0].value });
+      return;
+    }
+
     // Channel send on/off reply: /ch/01/mix/01/on
     const sendOnMatch = address.match(/^\/ch\/(\d+)\/mix\/(\d+)\/on$/);
     if (sendOnMatch && args[0] !== undefined) {
@@ -413,6 +422,19 @@ class X32Bridge {
     this._sendRaw(`/ch/${pad}/dyn/${param}`, [{ type, value }]);
   }
 
+  getGateParams(channel) {
+    const pad = String(channel).padStart(2, '0');
+    ['on', 'thr', 'range', 'att', 'hold', 'rel'].forEach((param, i) => {
+      setTimeout(() => this._sendRaw(`/ch/${pad}/gate/${param}`), i * 20);
+    });
+  }
+
+  setGateParam(channel, param, value) {
+    const pad = String(channel).padStart(2, '0');
+    const type = param === 'on' ? 'i' : 'f';
+    this._sendRaw(`/ch/${pad}/gate/${param}`, [{ type, value }]);
+  }
+
   getChannelSends(channel) {
     const chPad = String(channel).padStart(2, '0');
     for (let bus = 1; bus <= 16; bus++) {
@@ -429,7 +451,8 @@ class X32Bridge {
     this.getMute(channel);
     setTimeout(() => this.getEQ(channel), 30);
     setTimeout(() => this.getDynParams(channel), 430);
-    setTimeout(() => this.getChannelSends(channel), 650);
+    setTimeout(() => this.getGateParams(channel), 560);
+    setTimeout(() => this.getChannelSends(channel), 760);
   }
 }
 

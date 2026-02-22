@@ -418,6 +418,10 @@ io.on('connection', (socket) => {
     x32.setDynParam(channel, param, value);
   });
 
+  socket.on('x32:setGateParam', ({ channel, param, value }) => {
+    x32.setGateParam(channel, param, value);
+  });
+
   socket.on('x32:requestChannelDetail', ({ channel }) => {
     x32.requestChannelDetail(channel);
   });

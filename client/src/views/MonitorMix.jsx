@@ -29,6 +29,7 @@ export default function MonitorMix({ userName }) {
     setFader, getLevel, setBusMaster, busMasterLevel, x32Status, channelNames, busNames,
     setMute, isMuted,
     requestChannelDetail, setEqParam, getEqParam, setDynParam, getDynParam,
+    setGateParam, getGateParam,
     getSendLevel, setSendLevel, getMeterLevel,
   } = useX32(faders, bus);
 
@@ -234,6 +235,8 @@ export default function MonitorMix({ userName }) {
           setEqParam={setEqParam}
           getDynParam={getDynParam}
           setDynParam={setDynParam}
+          getGateParam={getGateParam}
+          setGateParam={setGateParam}
           getMeterLevel={getMeterLevel}
           getSendLevel={getSendLevel}
           setSendLevel={setSendLevel}
