@@ -234,6 +234,7 @@ export default function MonitorMix({ userName }) {
           setEqParam={setEqParam}
           getDynParam={getDynParam}
           setDynParam={setDynParam}
+          getMeterLevel={getMeterLevel}
           getSendLevel={getSendLevel}
           setSendLevel={setSendLevel}
           onClose={() => setDetailChannel(null)}

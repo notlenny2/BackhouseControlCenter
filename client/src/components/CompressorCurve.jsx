@@ -151,11 +151,7 @@ function drawComp(canvas, thrDb, ratio, kneeDb, mgDb) {
 function MeterBar({ label, value, min, max, color, dimColor, unit = 'dB', reverse = false }) {
   // value is in dB, min/max define the range
   const pct = Math.max(0, Math.min(1, (value - min) / (max - min)));
-  const fillPct = reverse ? (1 - pct) * 100 : pct * 100; // reverse: GR fills from top
-
-  const segments = reverse
-    ? [{ from: 0, to: 33, col: '#22aa44' }, { from: 33, to: 66, col: '#aaaa00' }, { from: 66, to: 100, col: '#cc3300' }]
-    : [{ from: 0, to: 60, col: '#22aa44' }, { from: 60, to: 80, col: '#aaaa00' }, { from: 80, to: 100, col: '#cc4400' }];
+  const fillPct = pct * 100;
 
   return (
     <div style={ms.meterWrap}>
@@ -184,7 +180,7 @@ function MeterBar({ label, value, min, max, color, dimColor, unit = 'dB', revers
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
-export default function CompressorCurve({ ch, getDynParam, setDynParam }) {
+export default function CompressorCurve({ ch, getDynParam, setDynParam, getMeterLevel }) {
   const canvasRef = useRef(null);
 
   const thr   = getDynParam(ch, 'thr')   ?? 0.5;
@@ -205,6 +201,12 @@ export default function CompressorCurve({ ch, getDynParam, setDynParam }) {
   const ratioStr = ratioV > 50 ? '∞ : 1' : `${ratioV.toFixed(1)} : 1`;
   const attMs  = pToAtt(att);
   const relMs  = pToRel(rel);
+  const inputLinear = Math.max(0, Math.min(1, getMeterLevel ? getMeterLevel(ch) : 0));
+  const hasSignal = inputLinear > 0.002;
+  const meterInputDb = hasSignal ? Math.max(-60, Math.min(0, 20 * Math.log10(inputLinear))) : -60;
+  const compOutputDbNoMakeup = hasSignal ? gainComputer(meterInputDb, thrDb, ratioV, kneeDb) : -60;
+  const meterGainReduced = hasSignal ? Math.max(0, meterInputDb - compOutputDbNoMakeup) : 0;
+  const meterOutputDb = hasSignal ? Math.max(-60, Math.min(6, compOutputDbNoMakeup + mgDb)) : -60;
 
   useEffect(() => {
     const c = canvasRef.current;
@@ -224,7 +226,7 @@ export default function CompressorCurve({ ch, getDynParam, setDynParam }) {
   return (
     <div>
       {/* ON/OFF badge */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10 }}>
         <button
           style={{
             ...ps.onBtn,
@@ -245,11 +247,15 @@ export default function CompressorCurve({ ch, getDynParam, setDynParam }) {
       </div>
 
       {/* Transfer curve canvas */}
-      <div style={{ position: 'relative', opacity: isOn ? 1 : 0.4, transition: 'opacity 0.2s' }}>
-        <canvas
-          ref={canvasRef}
-          style={{ width: '100%', aspectRatio: '1 / 1', display: 'block' }}
-        />
+      <div style={{ ...ps.graphRow, opacity: isOn ? 1 : 0.4, transition: 'opacity 0.2s' }}>
+        <div style={ps.graphWrap}>
+          <canvas ref={canvasRef} style={{ width: '100%', aspectRatio: '1 / 1', display: 'block' }} />
+        </div>
+        <div style={ps.meterCol}>
+          <MeterBar label="INPUT" value={meterInputDb} min={-60} max={0} color="#2b7dff" />
+          <MeterBar label="GR" value={meterGainReduced} min={0} max={24} color="#ff3b30" reverse />
+          <MeterBar label="OUTPUT" value={meterOutputDb} min={-60} max={6} color="#22c55e" />
+        </div>
       </div>
 
       {/* Parameter sliders */}
@@ -333,14 +339,14 @@ const ps = {
   },
   sliders: {
     marginTop: 20,
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 18,
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: 14,
   },
   sliderRow: {
     display: 'flex',
     flexDirection: 'column',
-    gap: 8,
+    gap: 6,
   },
   sliderMeta: {
     display: 'flex',
@@ -355,9 +361,28 @@ const ps = {
     textTransform: 'uppercase',
   },
   sliderValue: {
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: 700,
     fontVariantNumeric: 'tabular-nums',
+  },
+  graphRow: {
+    display: 'flex',
+    alignItems: 'stretch',
+    justifyContent: 'flex-start',
+    gap: 12,
+  },
+  graphWrap: {
+    width: '100%',
+    maxWidth: 450,
+    margin: 0,
+    flexShrink: 1,
+  },
+  meterCol: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(3, 1fr)',
+    gap: 8,
+    alignItems: 'stretch',
+    minWidth: 120,
   },
 };
 

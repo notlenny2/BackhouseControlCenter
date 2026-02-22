@@ -37,6 +37,7 @@ export default function ChannelDetailPanel({
   channel, channelNames, busNames,
   getEqParam, setEqParam,
   getDynParam, setDynParam,
+  getMeterLevel,
   getSendLevel, setSendLevel,
   onClose,
 }) {
@@ -104,6 +105,7 @@ export default function ChannelDetailPanel({
                 ch={channel}
                 getDynParam={getDynParam}
                 setDynParam={setDynParam}
+                getMeterLevel={getMeterLevel}
               />
             </div>
           )}
