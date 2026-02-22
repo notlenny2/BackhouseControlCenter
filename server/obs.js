@@ -15,6 +15,31 @@ class OBSController {
     this.port = null;
     this.password = null;
     this.reconnectTimer = null;
+    this.screenshotBusy = false;
+    this.previewTimer = null;
+    this.previewIndex = 0;
+  }
+
+  async _emitScreenshot() {
+    if (!this.connected || !this.currentScene) return;
+    if (this.screenshotBusy) return;
+    this.screenshotBusy = true;
+    try {
+      const { imageData } = await this.obs.call('GetSourceScreenshot', {
+        sourceName: this.currentScene,
+        imageFormat: 'jpeg',
+        imageWidth: 960,
+        imageHeight: 540,
+        imageCompressionQuality: 78,
+      });
+      // Preview frames are real-time UI hints; drop stale frames under load
+      // instead of queueing and increasing visible delay on client devices.
+      this.io.volatile.emit('obs:screenshot', { data: imageData });
+    } catch (e) {
+      // Non-critical preview path; ignore transient OBS screenshot failures.
+    } finally {
+      this.screenshotBusy = false;
+    }
   }
 
   async connect(host = 'localhost', port = 4455, password = '') {
@@ -47,6 +72,7 @@ class OBSController {
       const { scenes, currentProgramSceneName } = await this.obs.call('GetSceneList');
       this.scenes = scenes.map(s => s.sceneName);
       this.currentScene = currentProgramSceneName;
+      if (this.previewIndex >= this.scenes.length) this.previewIndex = 0;
 
       const streamStatus = await this.obs.call('GetStreamStatus');
       this.streaming = streamStatus.outputActive;
@@ -55,6 +81,34 @@ class OBSController {
       this.recording = recordStatus.outputActive;
     } catch (e) {
       console.warn('[OBS] State fetch error:', e.message);
+    }
+  }
+
+  async _emitScenePreview(sceneName) {
+    if (!this.connected || !sceneName) return;
+    if (this.screenshotBusy) return;
+    this.screenshotBusy = true;
+    try {
+      const { imageData } = await this.obs.call('GetSourceScreenshot', {
+        sourceName: sceneName,
+        imageFormat: 'jpeg',
+        imageWidth: 480,
+        imageHeight: 270,
+        imageCompressionQuality: 68,
+      });
+      this.io.volatile.emit('obs:scenePreview', { scene: sceneName, data: imageData });
+    } catch (e) {
+      // Best-effort preview path.
+    } finally {
+      this.screenshotBusy = false;
+    }
+  }
+
+  async emitScenePreviews() {
+    if (!this.connected || !Array.isArray(this.scenes) || this.scenes.length === 0) return;
+    const list = [...this.scenes];
+    for (const sceneName of list) {
+      await this._emitScenePreview(sceneName);
     }
   }
 
@@ -74,6 +128,8 @@ class OBSController {
     this.obs.on('CurrentProgramSceneChanged', ({ sceneName }) => {
       this.currentScene = sceneName;
       this.io.emit('obs:sceneChanged', { scene: sceneName });
+      this._emitScreenshot();
+      this._emitScenePreview(sceneName);
     });
 
     this.obs.on('StreamStateChanged', ({ outputActive }) => {
@@ -89,6 +145,7 @@ class OBSController {
     this.obs.on('SceneListChanged', async () => {
       await this._fetchState();
       this.io.emit('obs:scenes', { scenes: this.scenes, current: this.currentScene });
+      this.emitScenePreviews();
     });
 
     this.obs.on('ConnectionClosed', () => {
@@ -113,27 +170,27 @@ class OBSController {
 
   _startScreenshots() {
     this._stopScreenshots();
+    this._emitScreenshot();
     this.screenshotTimer = setInterval(async () => {
-      if (!this.connected) return;
-      try {
-        const { imageData } = await this.obs.call('GetSourceScreenshot', {
-          sourceName: this.currentScene,
-          imageFormat: 'jpeg',
-          imageWidth: 480,
-          imageHeight: 270,
-          imageCompressionQuality: 70
-        });
-        this.io.emit('obs:screenshot', { data: imageData });
-      } catch (e) {
-        // Silently fail — screenshot is non-critical
-      }
-    }, 500);
+      this._emitScreenshot();
+    }, 1000);
+    this.previewTimer = setInterval(() => {
+      if (!this.scenes.length) return;
+      const sceneName = this.scenes[this.previewIndex % this.scenes.length];
+      this.previewIndex = (this.previewIndex + 1) % this.scenes.length;
+      this._emitScenePreview(sceneName);
+    }, 800);
+    this.emitScenePreviews();
   }
 
   _stopScreenshots() {
     if (this.screenshotTimer) {
       clearInterval(this.screenshotTimer);
       this.screenshotTimer = null;
+    }
+    if (this.previewTimer) {
+      clearInterval(this.previewTimer);
+      this.previewTimer = null;
     }
   }
 

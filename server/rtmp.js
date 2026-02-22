@@ -120,8 +120,8 @@ class RTMPServer {
       '-c:v', 'copy',
       '-c:a', 'copy',
       '-f', 'hls',
-      '-hls_time', '1',
-      '-hls_list_size', '6',
+      '-hls_time', '0.5',
+      '-hls_list_size', '3',
       '-hls_flags', 'delete_segments+append_list+omit_endlist+program_date_time',
       out,
     ];

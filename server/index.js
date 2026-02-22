@@ -609,6 +609,9 @@ io.on('connection', (socket) => {
   socket.on('obs:stopStream', async () => await obs.stopStream());
   socket.on('obs:startRecording', async () => await obs.startRecording());
   socket.on('obs:stopRecording', async () => await obs.stopRecording());
+  socket.on('obs:requestScenePreviews', async () => {
+    await obs.emitScenePreviews();
+  });
 
   // ── Setlist ──
   socket.on('setlist:load', () => {

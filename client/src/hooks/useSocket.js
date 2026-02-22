@@ -10,7 +10,7 @@ function getSocket() {
       ? 'http://localhost:3000'
       : window.location.origin;
     _socket = io(url, {
-      transports: ['websocket', 'polling'],
+      transports: ['websocket'],
       reconnectionDelay: 1000,
       reconnectionAttempts: Infinity
     });

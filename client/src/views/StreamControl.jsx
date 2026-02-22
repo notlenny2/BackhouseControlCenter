@@ -14,26 +14,53 @@ function sourceIcon(name = '') {
   return '🎥';
 }
 
-function HLSPreview({ fallbackImg, scene, streaming, recording }) {
+function prefersHlsByQuery() {
+  try {
+    return new URLSearchParams(window.location.search).get('hls') === '1';
+  } catch {
+    return false;
+  }
+}
+
+function HLSPreview({ fallbackImg, scene, streaming, recording, preferScreenshot }) {
   const videoRef = useRef(null);
   const hlsRef = useRef(null);
   const [active, setActive] = useState(false);
   const hlsUrl = `${window.location.origin}/hls/live/stream/index.m3u8`;
 
   useEffect(() => {
+    if (preferScreenshot) {
+      setActive(false);
+      return undefined;
+    }
     const vid = videoRef.current;
     if (!vid) return undefined;
 
     if (Hls.isSupported()) {
       const hls = new Hls({
         lowLatencyMode: true,
+        liveSyncDurationCount: 1,
+        liveMaxLatencyDurationCount: 2,
         backBufferLength: 0,
-        maxBufferLength: 4,
+        maxBufferLength: 1,
+        maxMaxBufferLength: 2,
       });
       hlsRef.current = hls;
       hls.loadSource(hlsUrl);
       hls.attachMedia(vid);
-      hls.on(Hls.Events.MANIFEST_PARSED, () => setActive(true));
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        setActive(true);
+        try { vid.play?.(); } catch {}
+      });
+      hls.on(Hls.Events.LEVEL_UPDATED, () => {
+        // Keep preview close to live edge; avoids drift into buffered delay.
+        try {
+          if (!Number.isFinite(vid.currentTime)) return;
+          const edge = hls.liveSyncPosition;
+          if (!Number.isFinite(edge)) return;
+          if (edge - vid.currentTime > 1.25) vid.currentTime = edge - 0.1;
+        } catch {}
+      });
       hls.on(Hls.Events.ERROR, (_evt, data) => {
         if (data.fatal) {
           setActive(false);
@@ -48,7 +75,13 @@ function HLSPreview({ fallbackImg, scene, streaming, recording }) {
 
     if (vid.canPlayType('application/vnd.apple.mpegurl')) {
       vid.src = hlsUrl;
-      const onLoad = () => setActive(true);
+      const onLoad = () => {
+        setActive(true);
+        try {
+          vid.currentTime = Number.MAX_SAFE_INTEGER;
+          vid.play?.();
+        } catch {}
+      };
       const onErr = () => setActive(false);
       vid.addEventListener('loadedmetadata', onLoad);
       vid.addEventListener('error', onErr);
@@ -59,7 +92,7 @@ function HLSPreview({ fallbackImg, scene, streaming, recording }) {
     }
 
     return undefined;
-  }, [hlsUrl]);
+  }, [hlsUrl, preferScreenshot]);
 
   return (
     <div style={s.previewWrap}>
@@ -78,6 +111,7 @@ function HLSPreview({ fallbackImg, scene, streaming, recording }) {
       ))}
       <div style={s.previewLabel}>
         {active && <span style={s.hlsChip}>▶ HLS</span>}
+        {!active && fallbackImg && <span style={s.hlsChip}>⚡ FAST</span>}
         {streaming && <span style={s.liveChip}>● LIVE</span>}
         {recording && <span style={s.recChip}>⏺ REC</span>}
         <span style={s.previewScene}>{scene}</span>
@@ -88,10 +122,13 @@ function HLSPreview({ fallbackImg, scene, streaming, recording }) {
 
 export default function StreamControl({ isAdmin, onOpenSettings }) {
   const { emit, on, connected: socketConnected } = useSocket();
+  // Default to low-latency screenshot preview. HLS can be forced with ?hls=1.
+  const preferScreenshot = !prefersHlsByQuery();
   const [obsStatus, setObsStatus] = useState({
     connected: false, scenes: [], currentScene: null, streaming: false, recording: false,
   });
   const [screenshot, setScreenshot] = useState(null);
+  const [scenePreviews, setScenePreviews] = useState({});
   const [switching, setSwitching] = useState(null); // scene name being switched to
 
   useEffect(() => {
@@ -106,6 +143,9 @@ export default function StreamControl({ isAdmin, onOpenSettings }) {
       on('obs:scenes',      ({ scenes, current }) =>
         setObsStatus(prev => ({ ...prev, scenes, currentScene: current }))),
       on('obs:screenshot',  ({ data }) => setScreenshot(data)),
+      on('obs:scenePreview', ({ scene, data }) => {
+        setScenePreviews(prev => ({ ...prev, [scene]: data }));
+      }),
     ];
     return () => offs.forEach(o => o());
   }, [on]);
@@ -114,6 +154,7 @@ export default function StreamControl({ isAdmin, onOpenSettings }) {
   useEffect(() => {
     if (!socketConnected) return;
     emit('status:request');
+    emit('obs:requestScenePreviews');
   }, [socketConnected, emit]);
 
   const switchScene = (scene) => {
@@ -158,35 +199,48 @@ export default function StreamControl({ isAdmin, onOpenSettings }) {
       {/* Connected */}
       {connected && (
         <div style={s.body}>
+          <div style={s.programPane}>
+            <HLSPreview
+              fallbackImg={screenshot}
+              scene={currentScene}
+              streaming={streaming}
+              recording={recording}
+              preferScreenshot={preferScreenshot}
+            />
+          </div>
 
-          <HLSPreview
-            fallbackImg={screenshot}
-            scene={currentScene}
-            streaming={streaming}
-            recording={recording}
-          />
-
-          {/* Camera / Scene grid */}
+          {/* Camera / Scene previews */}
           {scenes.length > 0 && (
-            <div style={s.section}>
-              <div style={s.sectionTitle}>CAMERAS & SCENES</div>
-              <div style={s.sceneGrid}>
+            <div style={s.cameraPane}>
+              <div style={s.sectionTitle}>CAMERAS</div>
+              <div style={s.sceneList}>
                 {scenes.map(scene => {
                   const isActive = scene === currentScene;
                   const isSwitching = scene === switching;
+                  const sceneImg = scenePreviews[scene];
                   return (
                     <button
                       key={scene}
                       onClick={() => !isActive && switchScene(scene)}
                       style={{
-                        ...s.sceneBtn,
-                        ...(isActive ? s.sceneBtnActive : {}),
+                        ...s.sceneCard,
+                        ...(isActive ? s.sceneCardActive : {}),
                         ...(isSwitching ? s.sceneBtnSwitching : {}),
                       }}
                     >
-                      <span style={s.sceneIcon}>{sourceIcon(scene)}</span>
-                      <span style={s.sceneName}>{scene}</span>
-                      {isActive && <span style={s.activeChip}>LIVE</span>}
+                      <div style={s.sceneThumbWrap}>
+                        {sceneImg ? (
+                          <img src={sceneImg} alt={scene} style={s.sceneThumb} />
+                        ) : (
+                          <div style={s.sceneThumbBlank}>
+                            <span style={s.sceneIcon}>{sourceIcon(scene)}</span>
+                          </div>
+                        )}
+                      </div>
+                      <div style={s.sceneMeta}>
+                        <span style={s.sceneName}>{scene}</span>
+                        {isActive && <span style={s.activeChip}>LIVE</span>}
+                      </div>
                     </button>
                   );
                 })}
@@ -196,7 +250,7 @@ export default function StreamControl({ isAdmin, onOpenSettings }) {
 
           {/* Stream / Record controls — admin only */}
           {isAdmin && (
-            <div style={s.section}>
+            <div style={s.broadcastPane}>
               <div style={s.sectionTitle}>BROADCAST</div>
               <button
                 onClick={() => emit(streaming ? 'obs:stopStream' : 'obs:startStream')}
@@ -323,13 +377,24 @@ const s = {
   // Connected body
   body: {
     flex: 1,
-    overflowY: 'auto',
-    padding: '12px 12px 24px',
+    overflow: 'hidden',
+    padding: '10px 10px 14px',
+    display: 'flex',
+    gap: 10,
+  },
+  programPane: { flex: 1.35, minWidth: 0, display: 'flex', flexDirection: 'column' },
+  cameraPane: {
+    flex: 1.1,
+    minWidth: 340,
+    maxWidth: 640,
     display: 'flex',
     flexDirection: 'column',
-    gap: 16,
+    gap: 8,
+    overflow: 'hidden',
   },
-  section: {
+  broadcastPane: {
+    width: 250,
+    flexShrink: 0,
     display: 'flex',
     flexDirection: 'column',
     gap: 8,
@@ -419,28 +484,30 @@ const s = {
     letterSpacing: 0.3,
   },
 
-  // Scene grid
-  sceneGrid: {
+  // Scene previews
+  sceneList: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(2, 1fr)',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
     gap: 8,
+    overflowY: 'auto',
+    paddingRight: 2,
   },
-  sceneBtn: {
+  sceneCard: {
     display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    padding: '12px 12px',
+    flexDirection: 'column',
+    gap: 6,
+    padding: 6,
     background: '#0f0f0f',
     border: '1px solid #1c1c1c',
     borderRadius: 10,
     color: '#666',
     textAlign: 'left',
-    minHeight: 52,
+    minHeight: 132,
     cursor: 'pointer',
     transition: 'border-color 0.15s',
     position: 'relative',
   },
-  sceneBtnActive: {
+  sceneCardActive: {
     background: 'rgba(240,165,0,0.07)',
     border: '1px solid rgba(240,165,0,0.35)',
     color: '#f0a500',
@@ -449,8 +516,37 @@ const s = {
     opacity: 0.5,
   },
   sceneIcon: {
-    fontSize: 18,
+    fontSize: 22,
     flexShrink: 0,
+  },
+  sceneThumbWrap: {
+    width: '100%',
+    borderRadius: 8,
+    overflow: 'hidden',
+    border: '1px solid #222',
+    background: '#000',
+    aspectRatio: '16/9',
+  },
+  sceneThumb: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+    display: 'block',
+  },
+  sceneThumbBlank: {
+    width: '100%',
+    height: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    color: '#666',
+  },
+  sceneMeta: {
+    width: '100%',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '0 2px',
   },
   sceneName: {
     flex: 1,
