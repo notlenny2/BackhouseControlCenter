@@ -14,12 +14,17 @@ class OBSController {
     this.host = null;
     this.port = null;
     this.password = null;
+    this.reconnectTimer = null;
   }
 
   async connect(host = 'localhost', port = 4455, password = '') {
     this.host = host;
     this.port = port;
     this.password = password;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     try {
       await this.obs.connect(`ws://${host}:${port}`, password || undefined);
       this.connected = true;
@@ -28,10 +33,12 @@ class OBSController {
       this._registerEvents();
       this._startScreenshots();
       this.io.emit('obs:status', this.getStatus());
+      this.io.emit('obs:scenes', { scenes: this.scenes, current: this.currentScene });
     } catch (e) {
       console.warn(`[OBS] Could not connect to ${host}:${port} — ${e.message}`);
       this.connected = false;
       this.io.emit('obs:status', this.getStatus());
+      this._scheduleReconnect();
     }
   }
 
@@ -51,7 +58,19 @@ class OBSController {
     }
   }
 
+  async refreshStateAndBroadcast() {
+    if (!this.connected) {
+      this.io.emit('obs:status', this.getStatus());
+      return;
+    }
+    await this._fetchState();
+    this.io.emit('obs:status', this.getStatus());
+    this.io.emit('obs:scenes', { scenes: this.scenes, current: this.currentScene });
+  }
+
   _registerEvents() {
+    this.obs.removeAllListeners();
+
     this.obs.on('CurrentProgramSceneChanged', ({ sceneName }) => {
       this.currentScene = sceneName;
       this.io.emit('obs:sceneChanged', { scene: sceneName });
@@ -77,14 +96,19 @@ class OBSController {
       console.log('[OBS] Disconnected');
       this._stopScreenshots();
       this.io.emit('obs:status', this.getStatus());
-      // Attempt reconnect
-      setTimeout(() => {
-        if (!this.connected && this.host) {
-          console.log('[OBS] Attempting reconnect...');
-          this.connect(this.host, this.port, this.password);
-        }
-      }, 5000);
+      this._scheduleReconnect();
     });
+  }
+
+  _scheduleReconnect() {
+    if (this.reconnectTimer || !this.host) return;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (!this.connected && this.host) {
+        console.log('[OBS] Attempting reconnect...');
+        this.connect(this.host, this.port, this.password);
+      }
+    }, 5000);
   }
 
   _startScreenshots() {
@@ -173,6 +197,10 @@ class OBSController {
 
   disconnect() {
     this._stopScreenshots();
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     try { this.obs.disconnect(); } catch (e) {}
     this.connected = false;
   }

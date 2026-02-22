@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import Hls from 'hls.js';
 import { useSocket } from '../hooks/useSocket';
 
 // Guess a source-type icon from the scene name
@@ -13,8 +14,80 @@ function sourceIcon(name = '') {
   return '🎥';
 }
 
+function HLSPreview({ fallbackImg, scene, streaming, recording }) {
+  const videoRef = useRef(null);
+  const hlsRef = useRef(null);
+  const [active, setActive] = useState(false);
+  const hlsUrl = `${window.location.origin}/hls/live/stream/index.m3u8`;
+
+  useEffect(() => {
+    const vid = videoRef.current;
+    if (!vid) return undefined;
+
+    if (Hls.isSupported()) {
+      const hls = new Hls({
+        lowLatencyMode: true,
+        backBufferLength: 0,
+        maxBufferLength: 4,
+      });
+      hlsRef.current = hls;
+      hls.loadSource(hlsUrl);
+      hls.attachMedia(vid);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => setActive(true));
+      hls.on(Hls.Events.ERROR, (_evt, data) => {
+        if (data.fatal) {
+          setActive(false);
+          setTimeout(() => { try { hls.loadSource(hlsUrl); } catch {} }, 3000);
+        }
+      });
+      return () => {
+        hls.destroy();
+        hlsRef.current = null;
+      };
+    }
+
+    if (vid.canPlayType('application/vnd.apple.mpegurl')) {
+      vid.src = hlsUrl;
+      const onLoad = () => setActive(true);
+      const onErr = () => setActive(false);
+      vid.addEventListener('loadedmetadata', onLoad);
+      vid.addEventListener('error', onErr);
+      return () => {
+        vid.removeEventListener('loadedmetadata', onLoad);
+        vid.removeEventListener('error', onErr);
+      };
+    }
+
+    return undefined;
+  }, [hlsUrl]);
+
+  return (
+    <div style={s.previewWrap}>
+      <video ref={videoRef} autoPlay playsInline muted style={{ ...s.preview, display: active ? 'block' : 'none' }} />
+      {!active && (fallbackImg ? (
+        <img src={fallbackImg} alt="Live preview" style={s.preview} />
+      ) : (
+        <div style={s.previewBlank}>
+          <span style={s.previewHint}>
+            OBS Stream Settings:{'\n'}
+            Service: Custom{'\n'}
+            Server: rtmp://localhost:1935/live{'\n'}
+            Stream Key: stream
+          </span>
+        </div>
+      ))}
+      <div style={s.previewLabel}>
+        {active && <span style={s.hlsChip}>▶ HLS</span>}
+        {streaming && <span style={s.liveChip}>● LIVE</span>}
+        {recording && <span style={s.recChip}>⏺ REC</span>}
+        <span style={s.previewScene}>{scene}</span>
+      </div>
+    </div>
+  );
+}
+
 export default function StreamControl({ isAdmin, onOpenSettings }) {
-  const { emit, on } = useSocket();
+  const { emit, on, connected: socketConnected } = useSocket();
   const [obsStatus, setObsStatus] = useState({
     connected: false, scenes: [], currentScene: null, streaming: false, recording: false,
   });
@@ -36,6 +109,12 @@ export default function StreamControl({ isAdmin, onOpenSettings }) {
     ];
     return () => offs.forEach(o => o());
   }, [on]);
+
+  // Ensure scene list/status is refreshed when this view is opened or reconnects.
+  useEffect(() => {
+    if (!socketConnected) return;
+    emit('status:request');
+  }, [socketConnected, emit]);
 
   const switchScene = (scene) => {
     setSwitching(scene);
@@ -80,17 +159,12 @@ export default function StreamControl({ isAdmin, onOpenSettings }) {
       {connected && (
         <div style={s.body}>
 
-          {/* Live preview */}
-          {screenshot && (
-            <div style={s.previewWrap}>
-              <img src={screenshot} alt="Live preview" style={s.preview} />
-              <div style={s.previewLabel}>
-                {streaming && <span style={s.liveChip}>● LIVE</span>}
-                {recording && <span style={s.recChip}>⏺ REC</span>}
-                <span style={s.previewScene}>{currentScene}</span>
-              </div>
-            </div>
-          )}
+          <HLSPreview
+            fallbackImg={screenshot}
+            scene={currentScene}
+            streaming={streaming}
+            recording={recording}
+          />
 
           {/* Camera / Scene grid */}
           {scenes.length > 0 && (
@@ -283,6 +357,22 @@ const s = {
     aspectRatio: '16/9',
     objectFit: 'cover',
   },
+  previewBlank: {
+    width: '100%',
+    aspectRatio: '16/9',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    color: '#888',
+    background: '#050505',
+  },
+  previewHint: {
+    fontSize: 12,
+    lineHeight: 1.6,
+    textAlign: 'center',
+    whiteSpace: 'pre-line',
+    fontFamily: "'BHP-Mono', monospace",
+  },
   previewLabel: {
     position: 'absolute',
     bottom: 8,
@@ -297,6 +387,16 @@ const s = {
     fontWeight: 800,
     color: '#fff',
     background: '#f44336',
+    padding: '2px 6px',
+    borderRadius: 4,
+    letterSpacing: 0.5,
+    fontFamily: "'BHP-Mono', monospace",
+  },
+  hlsChip: {
+    fontSize: 10,
+    fontWeight: 800,
+    color: '#fff',
+    background: '#2e7d32',
     padding: '2px 6px',
     borderRadius: 4,
     letterSpacing: 0.5,

@@ -38,6 +38,9 @@ echo.
 echo Starting BHP server...
 echo Press Ctrl+C to stop.
 echo.
+set "FFMPEG_PATH=C:\Users\Golf\AppData\Local\Microsoft\WinGet\Links\ffmpeg.exe"
+echo Using FFmpeg: %FFMPEG_PATH%
+echo.
 
 node index.js
 

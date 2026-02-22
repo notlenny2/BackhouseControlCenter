@@ -33,9 +33,11 @@ const X32Bridge = require('./x32');
 const MidiController = require('./midi');
 const OBSController = require('./obs');
 const Timeline = require('./timeline');
+const { RTMPServer } = require('./rtmp');
 
 const PORT = process.env.PORT || 3000;
 const CONFIG_DIR = path.join(__dirname, 'config');
+const MEDIA_DIR = path.join(__dirname, 'media');
 const SHOWS_DIR = path.join(CONFIG_DIR, 'shows');
 const LYRICS_DIR = path.join(CONFIG_DIR, 'lyrics');
 const SETLIST_FILE = path.join(CONFIG_DIR, 'setlist.json');
@@ -45,6 +47,7 @@ const AUDIO_DIR = path.join(__dirname, 'audio');
 const CLIENT_BUILD = path.join(__dirname, '..', 'client', 'dist');
 
 if (!fs.existsSync(AUDIO_DIR)) fs.mkdirSync(AUDIO_DIR, { recursive: true });
+if (!fs.existsSync(MEDIA_DIR)) fs.mkdirSync(MEDIA_DIR, { recursive: true });
 
 // ─── App setup ───────────────────────────────────────────────────────────────
 
@@ -78,6 +81,10 @@ const audioUpload = multer({
 
 // Serve audio files statically
 app.use('/audio', express.static(AUDIO_DIR));
+app.use('/hls', (req, res, next) => {
+  res.set('Cache-Control', 'no-cache, no-store');
+  next();
+}, express.static(MEDIA_DIR));
 
 // ─── Services ─────────────────────────────────────────────────────────────────
 
@@ -85,6 +92,7 @@ const x32 = new X32Bridge(io);
 const midi = new MidiController();
 const obs = new OBSController(io);
 const timeline = new Timeline();
+const rtmp = new RTMPServer(MEDIA_DIR);
 
 // ─── Config helpers ───────────────────────────────────────────────────────────
 
@@ -334,6 +342,9 @@ io.on('connection', (socket) => {
     x32.getLRFader();
     // Send current setlist
     socket.emit('setlist:data', loadSetlist());
+
+    // Refresh OBS state so scene list/buttons stay accurate after reconnects/view switches.
+    obs.refreshStateAndBroadcast().catch(() => {});
   });
 
   // ── X32 / Monitor Mix ──
@@ -760,6 +771,7 @@ httpServer.listen(PORT, '0.0.0.0', async () => {
   console.log('');
   console.log(`  MIDI:    ${midi.portName || 'No MIDI output'}`);
   console.log('  OBS:     Waiting (connect via UI)');
+  rtmp.start();
   console.log('  X32:     Searching...');
   console.log('');
 
@@ -768,14 +780,12 @@ httpServer.listen(PORT, '0.0.0.0', async () => {
   // Start X32
   x32.start(srvCfg.x32Ip);
 
-  // Auto-connect OBS if a non-localhost host is configured, or if env override
-  if (process.env.OBS_HOST || srvCfg.obsHost !== 'localhost') {
-    await obs.connect(
-      process.env.OBS_HOST || srvCfg.obsHost,
-      parseInt(process.env.OBS_PORT) || srvCfg.obsPort,
-      process.env.OBS_PASSWORD || srvCfg.obsPassword
-    );
-  }
+  // Auto-connect OBS on startup using saved settings.
+  await obs.connect(
+    process.env.OBS_HOST || srvCfg.obsHost || 'localhost',
+    parseInt(process.env.OBS_PORT) || srvCfg.obsPort || 4455,
+    process.env.OBS_PASSWORD || srvCfg.obsPassword || ''
+  );
 
   // Apply saved MIDI port
   if (srvCfg.midiPortIndex > 0) {
@@ -795,5 +805,6 @@ process.on('SIGINT', () => {
   console.log('\n[BHP] Shutting down...');
   midi.close();
   obs.disconnect();
+  rtmp.stop();
   process.exit(0);
 });
