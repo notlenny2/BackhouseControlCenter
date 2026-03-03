@@ -1,0 +1,24 @@
+#!/bin/bash
+set -euo pipefail
+
+LABEL="com.backhouse.controlcenter"
+PLIST="/Library/LaunchDaemons/${LABEL}.plist"
+APP_ROOT="/opt/backhouse-control-center"
+LOG_OUT="/var/log/backhouse-controlcenter.log"
+LOG_ERR="/var/log/backhouse-controlcenter.error.log"
+
+chown root:wheel "$PLIST"
+chmod 644 "$PLIST"
+
+chmod +x "$APP_ROOT/server/run-server.sh"
+chmod +x "$APP_ROOT/uninstall.sh"
+
+touch "$LOG_OUT" "$LOG_ERR"
+chmod 644 "$LOG_OUT" "$LOG_ERR"
+
+launchctl bootout system "$PLIST" >/dev/null 2>&1 || true
+launchctl bootstrap system "$PLIST"
+launchctl enable "system/${LABEL}" || true
+launchctl kickstart -k "system/${LABEL}" || true
+
+exit 0

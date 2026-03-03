@@ -1,5 +1,7 @@
 // obs.js — OBS WebSocket v5 client
-const OBSWebSocket = require('obs-websocket-js').default;
+const OBSWS = require('obs-websocket-js');
+const OBSWebSocket = OBSWS.default;
+const EventSubscription = OBSWS.EventSubscription;
 
 class OBSController {
   constructor(io) {
@@ -18,6 +20,28 @@ class OBSController {
     this.screenshotBusy = false;
     this.previewTimer = null;
     this.previewIndex = 0;
+    this.audioMeters = { leftDb: -60, rightDb: -60 };
+  }
+
+  _clampDb(db) {
+    if (!Number.isFinite(db)) return -60;
+    return Math.max(-60, Math.min(0, db));
+  }
+
+  _toDb(levelMul) {
+    const v = Math.max(0, Number(levelMul) || 0);
+    if (v <= 0.000001) return -90;
+    return 20 * Math.log10(v);
+  }
+
+  _extractStereoDb(input) {
+    const dbs = Array.isArray(input?.inputLevelsDb) ? input.inputLevelsDb.filter(Number.isFinite) : [];
+    const muls = Array.isArray(input?.inputLevelsMul) ? input.inputLevelsMul.filter(Number.isFinite) : [];
+    if (dbs.length >= 2) return [dbs[0], dbs[1]];
+    if (dbs.length === 1) return [dbs[0], dbs[0]];
+    if (muls.length >= 2) return [this._toDb(muls[0]), this._toDb(muls[1])];
+    if (muls.length === 1) return [this._toDb(muls[0]), this._toDb(muls[0])];
+    return [-90, -90];
   }
 
   async _emitScreenshot() {
@@ -51,7 +75,12 @@ class OBSController {
       this.reconnectTimer = null;
     }
     try {
-      await this.obs.connect(`ws://${host}:${port}`, password || undefined);
+      const subscriptions =
+        (EventSubscription?.All || 0) |
+        (EventSubscription?.InputVolumeMeters || 0);
+      await this.obs.connect(`ws://${host}:${port}`, password || undefined, {
+        eventSubscriptions: subscriptions,
+      });
       this.connected = true;
       console.log(`[OBS] Connected to ${host}:${port}`);
       await this._fetchState();
@@ -59,6 +88,7 @@ class OBSController {
       this._startScreenshots();
       this.io.emit('obs:status', this.getStatus());
       this.io.emit('obs:scenes', { scenes: this.scenes, current: this.currentScene });
+      this.io.emit('obs:audioMeters', this.audioMeters);
     } catch (e) {
       console.warn(`[OBS] Could not connect to ${host}:${port} — ${e.message}`);
       this.connected = false;
@@ -153,7 +183,25 @@ class OBSController {
       console.log('[OBS] Disconnected');
       this._stopScreenshots();
       this.io.emit('obs:status', this.getStatus());
+      this.audioMeters = { leftDb: -60, rightDb: -60 };
+      this.io.emit('obs:audioMeters', this.audioMeters);
       this._scheduleReconnect();
+    });
+
+    this.obs.on('InputVolumeMeters', ({ inputs }) => {
+      if (!Array.isArray(inputs) || inputs.length === 0) return;
+      let leftDb = -90;
+      let rightDb = -90;
+      for (const input of inputs) {
+        const [l, r] = this._extractStereoDb(input);
+        if (l > leftDb) leftDb = l;
+        if (r > rightDb) rightDb = r;
+      }
+      this.audioMeters = {
+        leftDb: this._clampDb(leftDb),
+        rightDb: this._clampDb(rightDb),
+      };
+      this.io.volatile.emit('obs:audioMeters', this.audioMeters);
     });
   }
 

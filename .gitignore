@@ -20,3 +20,9 @@ server/config/
 Thumbs.db
 .vscode/
 *.swp
+
+# Logs
+logs/
+
+# Packaging output
+packaging/macos/out/

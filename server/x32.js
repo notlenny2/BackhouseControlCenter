@@ -216,6 +216,16 @@ class X32Bridge {
       return;
     }
 
+    // Bus EQ parameter reply: /bus/01/eq/1/g
+    const busEqMatch = address.match(/^\/bus\/(\d+)\/eq\/(\d+)\/(type|f|g|q)$/);
+    if (busEqMatch && args[0] !== undefined) {
+      const bus = parseInt(busEqMatch[1]);
+      const band = parseInt(busEqMatch[2]);
+      const param = busEqMatch[3];
+      this.io.emit('x32:busEq', { bus, band, param, value: args[0].value });
+      return;
+    }
+
     // Dynamics parameter reply: /ch/01/dyn/thr
     const dynMatch = address.match(/^\/ch\/(\d+)\/dyn\/(on|thr|ratio|att|rel|knee|gain)$/);
     if (dynMatch && args[0] !== undefined) {
@@ -225,12 +235,30 @@ class X32Bridge {
       return;
     }
 
+    // Bus dynamics parameter reply: /bus/01/dyn/thr
+    const busDynMatch = address.match(/^\/bus\/(\d+)\/dyn\/(on|thr|ratio|att|rel|knee|gain)$/);
+    if (busDynMatch && args[0] !== undefined) {
+      const bus = parseInt(busDynMatch[1]);
+      const param = busDynMatch[2];
+      this.io.emit('x32:busDyn', { bus, param, value: args[0].value });
+      return;
+    }
+
     // Gate parameter reply: /ch/01/gate/thr
     const gateMatch = address.match(/^\/ch\/(\d+)\/gate\/(on|thr|range|att|hold|rel)$/);
     if (gateMatch && args[0] !== undefined) {
       const channel = parseInt(gateMatch[1]);
       const param = gateMatch[2];
       this.io.emit('x32:gate', { channel, param, value: args[0].value });
+      return;
+    }
+
+    // Bus gate parameter reply: /bus/01/gate/thr
+    const busGateMatch = address.match(/^\/bus\/(\d+)\/gate\/(on|thr|range|att|hold|rel)$/);
+    if (busGateMatch && args[0] !== undefined) {
+      const bus = parseInt(busGateMatch[1]);
+      const param = busGateMatch[2];
+      this.io.emit('x32:busGate', { bus, param, value: args[0].value });
       return;
     }
 
@@ -409,6 +437,23 @@ class X32Bridge {
     this._sendRaw(`/ch/${pad}/eq/${band}/${param}`, [{ type, value }]);
   }
 
+  getBusEQ(bus) {
+    const pad = String(bus).padStart(2, '0');
+    let delay = 0;
+    for (let band = 1; band <= 4; band++) {
+      for (const param of ['type', 'f', 'g', 'q']) {
+        setTimeout(() => this._sendRaw(`/bus/${pad}/eq/${band}/${param}`), delay);
+        delay += 20;
+      }
+    }
+  }
+
+  setBusEqParam(bus, band, param, value) {
+    const pad = String(bus).padStart(2, '0');
+    const type = param === 'type' ? 'i' : 'f';
+    this._sendRaw(`/bus/${pad}/eq/${band}/${param}`, [{ type, value }]);
+  }
+
   getDynParams(channel) {
     const pad = String(channel).padStart(2, '0');
     ['on', 'thr', 'ratio', 'att', 'rel', 'knee', 'gain'].forEach((param, i) => {
@@ -422,6 +467,19 @@ class X32Bridge {
     this._sendRaw(`/ch/${pad}/dyn/${param}`, [{ type, value }]);
   }
 
+  getBusDynParams(bus) {
+    const pad = String(bus).padStart(2, '0');
+    ['on', 'thr', 'ratio', 'att', 'rel', 'knee', 'gain'].forEach((param, i) => {
+      setTimeout(() => this._sendRaw(`/bus/${pad}/dyn/${param}`), i * 20);
+    });
+  }
+
+  setBusDynParam(bus, param, value) {
+    const pad = String(bus).padStart(2, '0');
+    const type = param === 'on' ? 'i' : 'f';
+    this._sendRaw(`/bus/${pad}/dyn/${param}`, [{ type, value }]);
+  }
+
   getGateParams(channel) {
     const pad = String(channel).padStart(2, '0');
     ['on', 'thr', 'range', 'att', 'hold', 'rel'].forEach((param, i) => {
@@ -433,6 +491,19 @@ class X32Bridge {
     const pad = String(channel).padStart(2, '0');
     const type = param === 'on' ? 'i' : 'f';
     this._sendRaw(`/ch/${pad}/gate/${param}`, [{ type, value }]);
+  }
+
+  getBusGateParams(bus) {
+    const pad = String(bus).padStart(2, '0');
+    ['on', 'thr', 'range', 'att', 'hold', 'rel'].forEach((param, i) => {
+      setTimeout(() => this._sendRaw(`/bus/${pad}/gate/${param}`), i * 20);
+    });
+  }
+
+  setBusGateParam(bus, param, value) {
+    const pad = String(bus).padStart(2, '0');
+    const type = param === 'on' ? 'i' : 'f';
+    this._sendRaw(`/bus/${pad}/gate/${param}`, [{ type, value }]);
   }
 
   getChannelSends(channel) {
@@ -453,6 +524,13 @@ class X32Bridge {
     setTimeout(() => this.getDynParams(channel), 430);
     setTimeout(() => this.getGateParams(channel), 560);
     setTimeout(() => this.getChannelSends(channel), 760);
+  }
+
+  requestBusDetail(bus) {
+    this.getBusMasterFader(bus);
+    setTimeout(() => this.getBusEQ(bus), 30);
+    setTimeout(() => this.getBusDynParams(bus), 330);
+    setTimeout(() => this.getBusGateParams(bus), 510);
   }
 }
 

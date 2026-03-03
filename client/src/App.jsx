@@ -80,13 +80,14 @@ export default function App() {
       <div style={app.header}>
         <div style={app.headerLeft}>
           <div style={{ ...app.connDot, background: connected ? '#00e676' : '#f44336' }} />
-          <span style={app.appName}>Backhouse Productions Command Center</span>
-          {isAdmin && <span style={app.adminBadge}>BAND LEADER</span>}
         </div>
-        {/* Tappable username → profile sheet */}
-        <button onClick={() => setShowProfile(true)} style={app.userBtn}>
-          {userName} ▾
-        </button>
+        <div style={app.headerRight}>
+          <span style={app.appName}>BHP Command Center</span>
+          {/* Tappable username → profile sheet */}
+          <button onClick={() => setShowProfile(true)} style={app.userBtn}>
+            {isAdmin ? `Band Leader: ${userName}` : userName} ▾
+          </button>
+        </div>
       </div>
 
       {/* Profile sheet */}
@@ -453,6 +454,10 @@ function LoginScreen({ connected, emit, on, onAuthSuccess }) {
                 placeholder="Enter code"
                 style={ls.input}
                 autoFocus
+                autoComplete="new-password"
+                data-1p-ignore="true"
+                data-lpignore="true"
+                spellCheck={false}
               />
             </div>
             {error && <div style={ls.error}>{error}</div>}
@@ -487,7 +492,10 @@ function PinInput({ value, onChange, onEnter }) {
       onKeyDown={e => { if (e.key === 'Enter') onEnter(); }}
       placeholder="••••"
       style={ls.pinInput}
-      autoComplete="off"
+      autoComplete="new-password"
+      data-1p-ignore="true"
+      data-lpignore="true"
+      spellCheck={false}
     />
   );
 }
@@ -496,12 +504,31 @@ function PinInput({ value, onChange, onEnter }) {
 
 const app = {
   container: { display: 'flex', flexDirection: 'column', height: '100dvh', background: '#0d0d0d', overflow: 'hidden' },
-  header: { display: 'flex', alignItems: 'center', padding: '0 12px', height: 56, background: '#111', borderBottom: '1px solid #222', flexShrink: 0, position: 'relative' },
+  header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 10px', height: 44, background: '#111', borderBottom: '1px solid #222', flexShrink: 0, position: 'relative' },
   headerLeft: { display: 'flex', alignItems: 'center', gap: 6 },
   connDot: { width: 7, height: 7, borderRadius: '50%' },
-  appName: { fontFamily: "'BHP-PunkKid', serif", fontSize: 32, color: '#f0a500', letterSpacing: 2, position: 'absolute', left: '50%', transform: 'translateX(-50%)', whiteSpace: 'nowrap', pointerEvents: 'none', textAlign: 'center' },
-  adminBadge: { fontSize: 9, fontWeight: 700, color: '#f0a500', background: 'rgba(240,165,0,0.15)', padding: '2px 5px', borderRadius: 4, letterSpacing: 1 },
-  userBtn: { background: 'transparent', color: '#888', fontSize: 13, padding: '4px 8px', minHeight: 32, borderRadius: 6, border: '1px solid #2a2a2a' },
+  headerRight: { display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10, marginLeft: 'auto' },
+  appName: {
+    fontFamily: "'BHP-PunkKid', serif",
+    fontSize: 14,
+    lineHeight: 0.95,
+    color: '#f0a500',
+    letterSpacing: 0.8,
+    width: 108,
+    whiteSpace: 'normal',
+    overflowWrap: 'break-word',
+    textAlign: 'right',
+  },
+  userBtn: {
+    background: 'transparent',
+    color: '#888',
+    fontSize: 11,
+    padding: '2px 8px',
+    minHeight: 28,
+    borderRadius: 6,
+    border: '1px solid #2a2a2a',
+    whiteSpace: 'nowrap',
+  },
   content: { flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' },
   tabBar: { display: 'flex', borderTop: '1px solid #1a1a1a', background: '#0d0d0d', flexShrink: 0, paddingBottom: 'env(safe-area-inset-bottom)' },
   tabBtn: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '8px 4px', background: 'transparent', color: '#555', borderRadius: 0, gap: 3, minHeight: 56 },

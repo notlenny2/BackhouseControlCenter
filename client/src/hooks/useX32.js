@@ -12,6 +12,9 @@ export function useX32(faders, bus) {
   const [eqParams, setEqParams] = useState({}); // `${ch}_${band}_${param}` → value
   const [dynParams, setDynParams] = useState({}); // `${ch}_${param}` → value
   const [gateParams, setGateParams] = useState({}); // `${ch}_${param}` → value
+  const [busEqParams, setBusEqParams] = useState({}); // `${bus}_${band}_${param}` → value
+  const [busDynParams, setBusDynParams] = useState({}); // `${bus}_${param}` → value
+  const [busGateParams, setBusGateParams] = useState({}); // `${bus}_${param}` → value
   const [sendLevels, setSendLevels] = useState({}); // `${ch}_${bus}` → level (covers all buses)
   const [sendOns, setSendOns] = useState({}); // `${ch}_${bus}` → 0|1
   const [meterLevels, setMeterLevels] = useState([]); // index 0 = ch1, index 31 = ch32
@@ -42,6 +45,15 @@ export function useX32(faders, bus) {
     const offDyn = on('x32:dyn', ({ channel, param, value }) => {
       setDynParams(prev => ({ ...prev, [`${channel}_${param}`]: value }));
     });
+    const offBusEq = on('x32:busEq', ({ bus, band, param, value }) => {
+      setBusEqParams(prev => ({ ...prev, [`${bus}_${band}_${param}`]: value }));
+    });
+    const offBusDyn = on('x32:busDyn', ({ bus, param, value }) => {
+      setBusDynParams(prev => ({ ...prev, [`${bus}_${param}`]: value }));
+    });
+    const offBusGate = on('x32:busGate', ({ bus, param, value }) => {
+      setBusGateParams(prev => ({ ...prev, [`${bus}_${param}`]: value }));
+    });
     const offGate = on('x32:gate', ({ channel, param, value }) => {
       setGateParams(prev => ({ ...prev, [`${channel}_${param}`]: value }));
     });
@@ -56,7 +68,7 @@ export function useX32(faders, bus) {
 
     return () => {
       offStatus(); offFader(); offName(); offBusName(); offBusMaster();
-      offMute(); offEq(); offDyn(); offGate(); offSendOn(); offMeters();
+      offMute(); offEq(); offDyn(); offBusEq(); offBusDyn(); offBusGate(); offGate(); offSendOn(); offMeters();
     };
   }, [on, emit]);
 
@@ -98,6 +110,10 @@ export function useX32(faders, bus) {
     emit('x32:requestChannelDetail', { channel });
   }, [emit]);
 
+  const requestBusDetail = useCallback((bus) => {
+    emit('x32:requestBusDetail', { bus });
+  }, [emit]);
+
   const setEqParam = useCallback((channel, band, param, value) => {
     setEqParams(prev => ({ ...prev, [`${channel}_${band}_${param}`]: value }));
     emit('x32:setEqParam', { channel, band, param, value });
@@ -106,6 +122,15 @@ export function useX32(faders, bus) {
   const getEqParam = useCallback((channel, band, param) => {
     return eqParams[`${channel}_${band}_${param}`];
   }, [eqParams]);
+
+  const setBusEqParam = useCallback((bus, band, param, value) => {
+    setBusEqParams(prev => ({ ...prev, [`${bus}_${band}_${param}`]: value }));
+    emit('x32:setBusEqParam', { bus, band, param, value });
+  }, [emit]);
+
+  const getBusEqParam = useCallback((bus, band, param) => {
+    return busEqParams[`${bus}_${band}_${param}`];
+  }, [busEqParams]);
 
   const setDynParam = useCallback((channel, param, value) => {
     setDynParams(prev => ({ ...prev, [`${channel}_${param}`]: value }));
@@ -116,6 +141,15 @@ export function useX32(faders, bus) {
     return dynParams[`${channel}_${param}`];
   }, [dynParams]);
 
+  const setBusDynParam = useCallback((bus, param, value) => {
+    setBusDynParams(prev => ({ ...prev, [`${bus}_${param}`]: value }));
+    emit('x32:setBusDynParam', { bus, param, value });
+  }, [emit]);
+
+  const getBusDynParam = useCallback((bus, param) => {
+    return busDynParams[`${bus}_${param}`];
+  }, [busDynParams]);
+
   const setGateParam = useCallback((channel, param, value) => {
     setGateParams(prev => ({ ...prev, [`${channel}_${param}`]: value }));
     emit('x32:setGateParam', { channel, param, value });
@@ -124,6 +158,15 @@ export function useX32(faders, bus) {
   const getGateParam = useCallback((channel, param) => {
     return gateParams[`${channel}_${param}`];
   }, [gateParams]);
+
+  const setBusGateParam = useCallback((bus, param, value) => {
+    setBusGateParams(prev => ({ ...prev, [`${bus}_${param}`]: value }));
+    emit('x32:setBusGateParam', { bus, param, value });
+  }, [emit]);
+
+  const getBusGateParam = useCallback((bus, param) => {
+    return busGateParams[`${bus}_${param}`];
+  }, [busGateParams]);
 
   const getSendLevel = useCallback((channel, busNum) => {
     return sendLevels[`${channel}_${busNum}`] ?? 0;
@@ -146,10 +189,13 @@ export function useX32(faders, bus) {
     setFader, getLevel, setBusMaster, busMasterLevel,
     x32Status, channelNames, busNames,
     setMute, isMuted, mutes,
-    requestChannelDetail,
+    requestChannelDetail, requestBusDetail,
     setEqParam, getEqParam, eqParams,
+    setBusEqParam, getBusEqParam, busEqParams,
     setDynParam, getDynParam, dynParams,
+    setBusDynParam, getBusDynParam, busDynParams,
     setGateParam, getGateParam, gateParams,
+    setBusGateParam, getBusGateParam, busGateParams,
     getSendLevel, setSendLevel, getSendOn, sendLevels,
     getMeterLevel,
   };

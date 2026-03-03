@@ -4,7 +4,7 @@ import { useRef, useEffect, useCallback, useState, useMemo } from 'react';
 // ─── Constants ────────────────────────────────────────────────────────────────
 const BAND_COLORS = ['#4488ff', '#44ee88', '#ffcc33', '#ff7744'];
 const BAND_LABELS = ['LF', 'LMF', 'HMF', 'HF'];
-const EQ_TYPE_NAMES = ['LC', 'LP', 'PEQ', 'VEQ', 'HShv', 'LShv', 'HC', 'HP'];
+const EQ_TYPE_NAMES = ['LC', 'LShv', 'PEQ', 'VEQ', 'HShv', 'HC'];
 const FREQ_TICKS = [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000];
 const DB_TICKS = [-12, -9, -6, -3, 0, 3, 6, 9, 12];
 
@@ -33,16 +33,16 @@ function bandResp(f, freq, gainDb, q, type) {
       const d = r - ir;
       return gainDb / (1 + q * q * d * d);
     }
+    case 1: { // Low shelf
+      return gainDb * (0.5 + 0.5 * Math.tanh(Math.log(ir) * Math.max(0.5, q * 0.5)));
+    }
     case 4: { // High shelf
       return gainDb * (0.5 + 0.5 * Math.tanh(Math.log(r) * Math.max(0.5, q * 0.5)));
-    }
-    case 5: { // Low shelf
-      return gainDb * (0.5 + 0.5 * Math.tanh(Math.log(ir) * Math.max(0.5, q * 0.5)));
     }
     case 0: case 7: // LC / HP — rolloff below f0
       if (f < freq) return Math.max(-60, -24 * Math.log2(freq / f));
       return 0;
-    case 1: case 6: // LP / HC — rolloff above f0
+    case 5: case 6: // HC / LP — rolloff above f0
       if (f > freq) return Math.max(-60, -24 * Math.log2(f / freq));
       return 0;
     default: return 0;
@@ -169,7 +169,7 @@ function drawEQ(canvas, bands, selectedIdx) {
 
   // ── Band handles ───────────────────────────────────────────────────────────
   for (const b of bands) {
-    const showGain = [2, 3, 4, 5].includes(b.type);
+    const showGain = [1, 2, 3, 4].includes(b.type);
     const hx = fToX(b.freq, W);
     const hy = showGain ? dToY(b.gainDb, H - labelH) : y0;
     const sel = b.idx === selectedIdx;
@@ -258,7 +258,7 @@ export default function EQCurve({ ch, getEqParam, setEqParam }) {
     const H = canvas.offsetHeight - 18;
     let best = null, bestDist = HANDLE_R + 12;
     for (const b of bands) {
-      const showGain = [2, 3, 4, 5].includes(b.type);
+    const showGain = [1, 2, 3, 4].includes(b.type);
       const hx = fToX(b.freq, W);
       const hy = showGain ? dToY(b.gainDb, H) : dToY(0, H);
       const d  = Math.hypot(x - hx, y - hy);
@@ -352,7 +352,7 @@ export default function EQCurve({ ch, getEqParam, setEqParam }) {
         </SliderRow>
 
         {/* GAIN (only meaningful for PEQ/VEQ/shelf) */}
-        {[2, 3, 4, 5].includes(sb.type) && (
+        {[1, 2, 3, 4].includes(sb.type) && (
           <SliderRow label="GAIN" value={gainStr} accent="#ffaa00">
             <input type="range" min="0" max="1" step="0.001"
               value={sb.gainP}
@@ -363,7 +363,7 @@ export default function EQCurve({ ch, getEqParam, setEqParam }) {
         )}
 
         {/* Q */}
-        {[2, 3, 4, 5].includes(sb.type) && (
+        {[1, 2, 3, 4].includes(sb.type) && (
           <SliderRow label="Q" value={qStr} accent="#00aaff">
             <input type="range" min="0" max="1" step="0.001"
               value={sb.qP}

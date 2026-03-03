@@ -1,0 +1,10 @@
+#!/bin/bash
+set -euo pipefail
+
+LABEL="com.backhouse.controlcenter"
+PLIST="/Library/LaunchDaemons/${LABEL}.plist"
+
+# Stop existing service before replacing files.
+launchctl bootout system "$PLIST" >/dev/null 2>&1 || true
+
+exit 0

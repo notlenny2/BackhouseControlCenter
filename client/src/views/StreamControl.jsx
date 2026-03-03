@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Hls from 'hls.js';
 import { useSocket } from '../hooks/useSocket';
+import Fader from '../components/Fader';
+import BusMasterDetailPanel from '../components/BusMasterDetailPanel';
 
 // Guess a source-type icon from the scene name
 function sourceIcon(name = '') {
@@ -130,6 +132,18 @@ export default function StreamControl({ isAdmin, onOpenSettings }) {
   const [screenshot, setScreenshot] = useState(null);
   const [scenePreviews, setScenePreviews] = useState({});
   const [switching, setSwitching] = useState(null); // scene name being switched to
+  const [streamBus, setStreamBus] = useState(1);
+  const [busNames, setBusNames] = useState({});
+  const [streamBusLevel, setStreamBusLevel] = useState(0.75);
+  const [audioMeters, setAudioMeters] = useState({ leftDb: -60, rightDb: -60 });
+  const [meterLevels, setMeterLevels] = useState([]);
+  const [sendLevels, setSendLevels] = useState({});
+  const [busEqParams, setBusEqParams] = useState({});
+  const [busDynParams, setBusDynParams] = useState({});
+  const [busGateParams, setBusGateParams] = useState({});
+  const [showBusDetail, setShowBusDetail] = useState(false);
+  const streamBusRef = useRef(1);
+  useEffect(() => { streamBusRef.current = streamBus; }, [streamBus]);
 
   useEffect(() => {
     const offs = [
@@ -146,16 +160,103 @@ export default function StreamControl({ isAdmin, onOpenSettings }) {
       on('obs:scenePreview', ({ scene, data }) => {
         setScenePreviews(prev => ({ ...prev, [scene]: data }));
       }),
+      on('obs:audioMeters', ({ leftDb, rightDb }) => {
+        setAudioMeters({
+          leftDb: Number.isFinite(leftDb) ? leftDb : -60,
+          rightDb: Number.isFinite(rightDb) ? rightDb : -60,
+        });
+      }),
+      on('x32:busName', ({ bus, name }) => {
+        setBusNames(prev => ({ ...prev, [bus]: name }));
+      }),
+      on('x32:busMaster', ({ bus, level }) => {
+        if (bus === streamBusRef.current) setStreamBusLevel(level);
+      }),
+      on('x32:fader', ({ channel, bus, level }) => {
+        setSendLevels(prev => ({ ...prev, [`${channel}_${bus}`]: level }));
+      }),
+      on('x32:meters', ({ channels }) => {
+        if (Array.isArray(channels)) setMeterLevels(channels);
+      }),
+      on('x32:busEq', ({ bus, band, param, value }) => {
+        setBusEqParams(prev => ({ ...prev, [`${bus}_${band}_${param}`]: value }));
+      }),
+      on('x32:busDyn', ({ bus, param, value }) => {
+        setBusDynParams(prev => ({ ...prev, [`${bus}_${param}`]: value }));
+      }),
+      on('x32:busGate', ({ bus, param, value }) => {
+        setBusGateParams(prev => ({ ...prev, [`${bus}_${param}`]: value }));
+      }),
+      on('stream:config', ({ bus }) => {
+        const b = Math.max(1, Math.min(16, parseInt(bus) || 1));
+        setStreamBus(b);
+        emit('x32:getBusMaster', { bus: b });
+      }),
     ];
     return () => offs.forEach(o => o());
-  }, [on]);
+  }, [on, emit]);
 
   // Ensure scene list/status is refreshed when this view is opened or reconnects.
   useEffect(() => {
     if (!socketConnected) return;
     emit('status:request');
     emit('obs:requestScenePreviews');
+    emit('stream:getConfig');
+    emit('x32:getBusMaster', { bus: streamBusRef.current });
+    emit('x32:requestState', {
+      faders: Array.from({ length: 32 }, (_, i) => ({ channel: i + 1 })),
+      bus: streamBusRef.current,
+    });
   }, [socketConnected, emit]);
+
+  const setStreamBusAndPersist = (bus) => {
+    const b = Math.max(1, Math.min(16, parseInt(bus) || 1));
+    setStreamBus(b);
+    emit('stream:setBus', { bus: b });
+    emit('x32:getBusMaster', { bus: b });
+    emit('x32:requestState', {
+      faders: Array.from({ length: 32 }, (_, i) => ({ channel: i + 1 })),
+      bus: b,
+    });
+  };
+
+  const setStreamFeedLevel = (level) => {
+    const lv = Math.max(0, Math.min(1, Number(level) || 0));
+    setStreamBusLevel(lv);
+    emit('x32:setBusMaster', { bus: streamBus, level: lv });
+  };
+
+  const getBusEqParam = (bus, band, param) => busEqParams[`${bus}_${band}_${param}`];
+  const setBusEqParam = (bus, band, param, value) => {
+    setBusEqParams(prev => ({ ...prev, [`${bus}_${band}_${param}`]: value }));
+    emit('x32:setBusEqParam', { bus, band, param, value });
+  };
+  const getBusDynParam = (bus, param) => busDynParams[`${bus}_${param}`];
+  const setBusDynParam = (bus, param, value) => {
+    setBusDynParams(prev => ({ ...prev, [`${bus}_${param}`]: value }));
+    emit('x32:setBusDynParam', { bus, param, value });
+  };
+  const getBusGateParam = (bus, param) => busGateParams[`${bus}_${param}`];
+  const setBusGateParam = (bus, param, value) => {
+    setBusGateParams(prev => ({ ...prev, [`${bus}_${param}`]: value }));
+    emit('x32:setBusGateParam', { bus, param, value });
+  };
+  const openBusMasterDetail = () => {
+    emit('x32:requestBusDetail', { bus: streamBus });
+    setShowBusDetail(true);
+  };
+
+  const dbToLinear = (db) => {
+    if (!Number.isFinite(db)) return 0;
+    return Math.max(0, Math.min(1, Math.pow(10, db / 20)));
+  };
+  const obsVu = Math.max(dbToLinear(audioMeters.leftDb), dbToLinear(audioMeters.rightDb));
+  const streamBusVu = Array.from({ length: 32 }, (_, i) => i + 1).reduce((max, ch) => {
+    const send = sendLevels[`${ch}_${streamBus}`] ?? 0;
+    const sendGain = send < 0.001 ? 0 : Math.pow(10, ((send - 0.75) * 80) / 20);
+    const inLevel = meterLevels[ch - 1] ?? 0;
+    return Math.max(max, Math.min(1, inLevel * sendGain));
+  }, 0);
 
   const switchScene = (scene) => {
     setSwitching(scene);
@@ -248,26 +349,82 @@ export default function StreamControl({ isAdmin, onOpenSettings }) {
             </div>
           )}
 
-          {/* Stream / Record controls — admin only */}
-          {isAdmin && (
-            <div style={s.broadcastPane}>
-              <div style={s.sectionTitle}>BROADCAST</div>
-              <button
-                onClick={() => emit(streaming ? 'obs:stopStream' : 'obs:startStream')}
-                style={{ ...s.streamBtn, ...(streaming ? s.streamStopBtn : s.streamStartBtn) }}
-              >
-                {streaming ? '⏹  Stop Stream' : '📡  Go Live'}
-              </button>
-              <button
-                onClick={() => emit(recording ? 'obs:stopRecording' : 'obs:startRecording')}
-                style={{ ...s.recordBtn, ...(recording ? s.recordActiveBtn : {}) }}
-              >
-                {recording ? '⏹  Stop Recording' : '⏺  Record'}
-              </button>
+          <div style={s.broadcastPane}>
+            <div style={s.sectionTitle}>BROADCAST</div>
+            {isAdmin && (
+              <>
+                <button
+                  onClick={() => emit(streaming ? 'obs:stopStream' : 'obs:startStream')}
+                  style={{ ...s.streamBtn, ...(streaming ? s.streamStopBtn : s.streamStartBtn) }}
+                >
+                  {streaming ? '⏹  Stop Stream' : '📡  Go Live'}
+                </button>
+                <button
+                  onClick={() => emit(recording ? 'obs:stopRecording' : 'obs:startRecording')}
+                  style={{ ...s.recordBtn, ...(recording ? s.recordActiveBtn : {}) }}
+                >
+                  {recording ? '⏹  Stop Recording' : '⏺  Record'}
+                </button>
+              </>
+            )}
+
+            <div style={s.sectionTitle}>OBS AUDIO</div>
+            <div style={s.obsMeterWrap}>
+              <div style={s.obsMeterRow}>
+                <span style={s.obsMeterLabel}>L</span>
+                <div style={s.obsMeterTrack}>
+                  <div style={{ ...s.obsMeterFillL, width: `${Math.max(0, Math.min(100, ((audioMeters.leftDb + 60) / 60) * 100))}%` }} />
+                </div>
+                <span style={s.obsMeterDb}>{Math.round(audioMeters.leftDb)} dB</span>
+              </div>
+              <div style={s.obsMeterRow}>
+                <span style={s.obsMeterLabel}>R</span>
+                <div style={s.obsMeterTrack}>
+                  <div style={{ ...s.obsMeterFillR, width: `${Math.max(0, Math.min(100, ((audioMeters.rightDb + 60) / 60) * 100))}%` }} />
+                </div>
+                <span style={s.obsMeterDb}>{Math.round(audioMeters.rightDb)} dB</span>
+              </div>
             </div>
-          )}
+
+            <div style={s.sectionTitle}>STREAM FEED BUS</div>
+            <select
+              value={streamBus}
+              onChange={(e) => setStreamBusAndPersist(e.target.value)}
+              style={s.busSelect}
+            >
+              {Array.from({ length: 16 }, (_, i) => i + 1).map((b) => (
+                <option key={b} value={b}>
+                  {busNames[b] ? `${busNames[b]} (${b})` : `Bus ${b}`}
+                </option>
+              ))}
+            </select>
+            <div style={s.streamBusFaderWrap}>
+              <Fader
+                label={busNames[streamBus] || `Bus ${streamBus}`}
+                level={streamBusLevel}
+                onChange={setStreamFeedLevel}
+                vuLevel={streamBusVu || obsVu}
+                onOpenDetail={openBusMasterDetail}
+              />
+            </div>
+          </div>
 
         </div>
+      )}
+
+      {showBusDetail && (
+        <BusMasterDetailPanel
+          bus={streamBus}
+          busNames={busNames}
+          getBusEqParam={getBusEqParam}
+          setBusEqParam={setBusEqParam}
+          getBusDynParam={getBusDynParam}
+          setBusDynParam={setBusDynParam}
+          getBusGateParam={getBusGateParam}
+          setBusGateParam={setBusGateParam}
+          getMeterLevel={() => streamBusVu || obsVu}
+          onClose={() => setShowBusDetail(false)}
+        />
       )}
     </div>
   );
@@ -605,5 +762,71 @@ const s = {
     background: 'rgba(244,67,54,0.1)',
     color: '#f44336',
     border: '1px solid rgba(244,67,54,0.3)',
+  },
+  obsMeterWrap: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 6,
+    padding: '8px 10px',
+    borderRadius: 8,
+    border: '1px solid #252525',
+    background: '#101010',
+  },
+  obsMeterRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+  },
+  obsMeterLabel: {
+    width: 12,
+    fontSize: 11,
+    color: '#888',
+    fontFamily: "'BHP-Mono', monospace",
+    textAlign: 'center',
+  },
+  obsMeterTrack: {
+    flex: 1,
+    height: 10,
+    borderRadius: 6,
+    overflow: 'hidden',
+    border: '1px solid #232323',
+    background: '#060606',
+  },
+  obsMeterFillL: {
+    height: '100%',
+    background: 'linear-gradient(90deg, #2e7d32, #f9a825, #c62828)',
+    transition: 'width 0.08s linear',
+  },
+  obsMeterFillR: {
+    height: '100%',
+    background: 'linear-gradient(90deg, #2e7d32, #f9a825, #c62828)',
+    transition: 'width 0.08s linear',
+  },
+  obsMeterDb: {
+    width: 46,
+    textAlign: 'right',
+    fontSize: 11,
+    color: '#666',
+    fontFamily: "'BHP-Mono', monospace",
+  },
+  busSelect: {
+    width: '100%',
+    minHeight: 38,
+    borderRadius: 8,
+    border: '1px solid #2b2b2b',
+    background: '#141414',
+    color: '#ddd',
+    padding: '0 8px',
+    fontSize: 13,
+    fontFamily: "'BHP-Mono', monospace",
+  },
+  streamBusFaderWrap: {
+    height: 360,
+    display: 'flex',
+    alignItems: 'stretch',
+    border: '1px solid #222',
+    borderRadius: 10,
+    background: '#0d0d0d',
+    overflow: 'hidden',
   },
 };

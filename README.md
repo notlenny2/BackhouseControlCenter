@@ -47,6 +47,16 @@ cd client && npm run dev
 # Client proxies /api and socket.io to localhost:3000
 ```
 
+## macOS Deployment (Apple Silicon)
+
+Packaging scripts and launchd service templates are in:
+
+- `packaging/macos/`
+
+See full instructions:
+
+- `docs/MACOS_DEPLOYMENT.md`
+
 ## Config Files
 
 | File | Purpose |

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import FaderGroup from '../components/FaderGroup';
 import Fader from '../components/Fader';
 import ChannelDetailPanel from '../components/ChannelDetailPanel';
+import BusMasterDetailPanel from '../components/BusMasterDetailPanel';
 import { useSocket } from '../hooks/useSocket';
 import { useX32 } from '../hooks/useX32';
 
@@ -24,12 +25,14 @@ export default function MonitorMix({ userName }) {
   const [editingFaders, setEditingFaders] = useState([]);
   const [saved, setSaved] = useState(false);
   const [detailChannel, setDetailChannel] = useState(null);
+  const [showBusDetail, setShowBusDetail] = useState(false);
 
   const {
     setFader, getLevel, setBusMaster, busMasterLevel, x32Status, channelNames, busNames,
     setMute, isMuted,
-    requestChannelDetail, setEqParam, getEqParam, setDynParam, getDynParam,
-    setGateParam, getGateParam,
+    requestChannelDetail, requestBusDetail,
+    setEqParam, getEqParam, setDynParam, getDynParam,
+    setGateParam, getGateParam, setBusEqParam, getBusEqParam, setBusDynParam, getBusDynParam, setBusGateParam, getBusGateParam,
     getSendLevel, setSendLevel, getMeterLevel,
   } = useX32(faders, bus);
 
@@ -38,6 +41,17 @@ export default function MonitorMix({ userName }) {
     ...f,
     label: channelNames[f.channel] || channelNames[String(f.channel)] || f.label,
   }));
+
+  // Estimate bus activity from configured channels using the same post-fader
+  // meter logic as strip VU meters.
+  const busVuLevel = displayFaders.reduce((max, f) => {
+    const sendLevel = getLevel(f.channel);
+    const sendGain = sendLevel < 0.001
+      ? 0
+      : Math.pow(10, ((sendLevel - 0.75) * 80) / 20);
+    const vu = Math.min(1, (getMeterLevel?.(f.channel) || 0) * sendGain);
+    return Math.max(max, vu);
+  }, 0);
 
   // Load user config on mount
   useEffect(() => {
@@ -90,6 +104,11 @@ export default function MonitorMix({ userName }) {
   const openDetail = (channel) => {
     setDetailChannel(channel);
     requestChannelDetail(channel);
+  };
+
+  const openBusMasterDetail = () => {
+    setShowBusDetail(true);
+    requestBusDetail(bus);
   };
 
   const addFader = () => {
@@ -221,6 +240,8 @@ export default function MonitorMix({ userName }) {
             label={busNames[bus] || `Bus ${bus}`}
             level={busMasterLevel}
             onChange={setBusMaster}
+            vuLevel={busVuLevel}
+            onOpenDetail={openBusMasterDetail}
           />
         </div>
       </div>
@@ -241,6 +262,21 @@ export default function MonitorMix({ userName }) {
           getSendLevel={getSendLevel}
           setSendLevel={setSendLevel}
           onClose={() => setDetailChannel(null)}
+        />
+      )}
+
+      {showBusDetail && (
+        <BusMasterDetailPanel
+          bus={bus}
+          busNames={busNames}
+          getBusEqParam={getBusEqParam}
+          setBusEqParam={setBusEqParam}
+          getBusDynParam={getBusDynParam}
+          setBusDynParam={setBusDynParam}
+          getBusGateParam={getBusGateParam}
+          setBusGateParam={setBusGateParam}
+          getMeterLevel={() => busVuLevel}
+          onClose={() => setShowBusDetail(false)}
         />
       )}
     </div>

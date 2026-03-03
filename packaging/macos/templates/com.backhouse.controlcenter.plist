@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.backhouse.controlcenter</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/opt/backhouse-control-center/server/run-server.sh</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/opt/backhouse-control-center/server</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/var/log/backhouse-controlcenter.log</string>
+  <key>StandardErrorPath</key>
+  <string>/var/log/backhouse-controlcenter.error.log</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>NODE_ENV</key>
+    <string>production</string>
+    <key>BHP_OPEN_BROWSER</key>
+    <string>0</string>
+    <key>PORT</key>
+    <string>3000</string>
+  </dict>
+</dict>
+</plist>

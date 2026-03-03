@@ -36,6 +36,7 @@ const Timeline = require('./timeline');
 const { RTMPServer } = require('./rtmp');
 
 const PORT = process.env.PORT || 3000;
+const OPEN_BROWSER = !['0', 'false', 'no'].includes(String(process.env.BHP_OPEN_BROWSER || '1').toLowerCase());
 const CONFIG_DIR = path.join(__dirname, 'config');
 const MEDIA_DIR = path.join(__dirname, 'media');
 const SHOWS_DIR = path.join(CONFIG_DIR, 'shows');
@@ -144,16 +145,19 @@ function loadLyrics(name) {
 }
 
 function loadServerConfig() {
+  const defaults = {
+    x32Ip: process.env.X32_IP || '192.168.77.245',
+    obsHost: process.env.OBS_HOST || 'localhost',
+    obsPort: parseInt(process.env.OBS_PORT) || 4455,
+    obsPassword: process.env.OBS_PASSWORD || '',
+    midiPortIndex: 0,
+    streamBus: 1,
+  };
   try {
-    return JSON.parse(fs.readFileSync(SERVER_CONFIG_FILE, 'utf8'));
+    const parsed = JSON.parse(fs.readFileSync(SERVER_CONFIG_FILE, 'utf8'));
+    return { ...defaults, ...parsed };
   } catch {
-    return {
-      x32Ip: process.env.X32_IP || '192.168.77.245',
-      obsHost: process.env.OBS_HOST || 'localhost',
-      obsPort: parseInt(process.env.OBS_PORT) || 4455,
-      obsPassword: process.env.OBS_PASSWORD || '',
-      midiPortIndex: 0,
-    };
+    return defaults;
   }
 }
 
@@ -317,10 +321,12 @@ io.on('connection', (socket) => {
   console.log(`[Socket] Client connected: ${socket.id} from ${addr}`);
 
   // Send current state on connect
+  const initialCfg = loadServerConfig();
   socket.emit('x32:status', x32.getStatus());
   socket.emit('obs:status', obs.getStatus());
   socket.emit('timeline:state', timeline.getState());
   socket.emit('midi:status', midi.getStatus());
+  socket.emit('stream:config', { bus: initialCfg.streamBus || 1 });
 
   // Client can request a full status refresh at any time
   socket.on('status:request', () => {
@@ -328,6 +334,8 @@ io.on('connection', (socket) => {
     socket.emit('obs:status', obs.getStatus());
     socket.emit('timeline:state', timeline.getState());
     socket.emit('midi:status', midi.getStatus());
+    const cfg = loadServerConfig();
+    socket.emit('stream:config', { bus: cfg.streamBus || 1 });
     // Send cached channel names
     const names = x32.getAllChannelNames();
     Object.entries(names).forEach(([ch, name]) => {
@@ -373,6 +381,20 @@ io.on('connection', (socket) => {
 
   socket.on('x32:getBusMaster', ({ bus }) => {
     x32.getBusMasterFader(bus);
+  });
+
+  socket.on('stream:getConfig', () => {
+    const cfg = loadServerConfig();
+    socket.emit('stream:config', { bus: cfg.streamBus || 1 });
+  });
+
+  socket.on('stream:setBus', ({ bus }) => {
+    const b = Math.max(1, Math.min(16, parseInt(bus) || 1));
+    const cfg = loadServerConfig();
+    cfg.streamBus = b;
+    saveServerConfig(cfg);
+    io.emit('stream:config', { bus: b });
+    x32.getBusMasterFader(b);
   });
 
   socket.on('x32:setLR', ({ level }) => {
@@ -422,8 +444,24 @@ io.on('connection', (socket) => {
     x32.setGateParam(channel, param, value);
   });
 
+  socket.on('x32:setBusEqParam', ({ bus, band, param, value }) => {
+    x32.setBusEqParam(bus, band, param, value);
+  });
+
+  socket.on('x32:setBusDynParam', ({ bus, param, value }) => {
+    x32.setBusDynParam(bus, param, value);
+  });
+
+  socket.on('x32:setBusGateParam', ({ bus, param, value }) => {
+    x32.setBusGateParam(bus, param, value);
+  });
+
   socket.on('x32:requestChannelDetail', ({ channel }) => {
     x32.requestChannelDetail(channel);
+  });
+
+  socket.on('x32:requestBusDetail', ({ bus }) => {
+    x32.requestBusDetail(bus);
   });
 
   // ── Auth ──
@@ -743,7 +781,15 @@ io.on('connection', (socket) => {
 // ─── Static / SPA fallback (must come AFTER all API routes) ──────────────────
 
 if (fs.existsSync(CLIENT_BUILD)) {
-  app.use(express.static(CLIENT_BUILD));
+  app.use(express.static(CLIENT_BUILD, {
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('.html')) {
+        res.setHeader('Cache-Control', 'no-store');
+      } else if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+        res.setHeader('Cache-Control', 'no-cache');
+      }
+    },
+  }));
   app.get('*', (req, res) => res.sendFile(path.join(CLIENT_BUILD, 'index.html')));
 } else {
   app.get('/', (req, res) => {
@@ -799,11 +845,13 @@ httpServer.listen(PORT, '0.0.0.0', async () => {
     midi.openPort(srvCfg.midiPortIndex);
   }
 
-  // Open browser on Mac/Windows
-  try {
-    await open(`http://localhost:${PORT}`);
-  } catch (e) {
-    // Non-fatal — browser open may not work in all environments
+  if (OPEN_BROWSER) {
+    // Open browser on Mac/Windows for interactive sessions.
+    try {
+      await open(`http://localhost:${PORT}`);
+    } catch (e) {
+      // Non-fatal — browser open may not work in all environments
+    }
   }
 });
 
